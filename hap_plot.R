@@ -2,7 +2,11 @@
 # Nov 18, 2025
 # General use haplotype plotting script
 
-library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(magrittr)
+library(tidyr)
 library(argparse)
 
 get_args <- function() {
@@ -180,7 +184,6 @@ main <- function(){
 
 
   p <- plot_haplotype(l, r, hap, sort_mth=sort_mth, nonsample_cols=nonsample_cols, annotation=annotate, palette=palette)
-  print(paste0("l: ", l, " r: ", r, " expanded_region: ", expanded_region[1], "-", expanded_region[2], " annotate: ", annotate, " nrow hap: ", nrow(hap)))
   ggsave(args$out, plot=p, width=args$width, height=args$height)
 }
 
