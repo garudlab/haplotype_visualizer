@@ -2,6 +2,29 @@
 # Nov 18, 2025
 # General use haplotype plotting script
 
+
+
+# -----------------------------------------------------------------------------
+# Script Description:
+#   Generates a haplotype heatmap to visualize genetic structure or selective sweeps.
+#   It performs hierarchical clustering (UPGMA) on haplotypes within a specified
+#   genomic window and plots the alleles as a tile graph.
+#
+# Usage Example:
+#   Rscript hap_plot.R --file data.tsv --window 10300000 10400000 --out plot.png
+#
+# Inputs:
+#   -f / --file : Tab-separated file containing 'site_pos' and sample columns (0/1 data).
+#   --window    : Start and End coordinates to cluster by (e.g., 10000 20000).
+#   --out       : Output filename (default: hap_plot.png).
+#   --dist_sort : (Optional) Sort by genetic distance to the top haplotype (good for sweeps).
+#   --expanded_region : (Optional) Plot a wider context than the clustering window.
+#
+# Outputs:
+#   - An image file (PNG/PDF/JPEG) visualizing the sorted haplotypes.
+# -----------------------------------------------------------------------------
+
+
 library(dplyr)
 library(ggplot2)
 library(readr)
