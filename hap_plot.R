@@ -25,7 +25,6 @@ library(readr)
 library(magrittr)
 library(tidyr)
 library(argparse)
-library(reticulate)
 
 get_args <- function() {
   parser <- ArgumentParser(description = "General use haplotype plotting script")
@@ -37,16 +36,21 @@ get_args <- function() {
                       help="sort by distance to representative haplotype")
   
   # Window is strictly required for TSV, ignored for NPY
+  # PJL -- in a previous version this was not required -- i.e. you could plot the 
+  # entire hap file, by default. Can we revert to this version? 
   parser$add_argument("--window", type="double", nargs=2, default=c(0, 0),
                       help="window region to plot / cluster haplotypes by; (start end)")
   
   # Image index is strictly required for NPY, ignored for TSV
+  # PJL -- likewise, can we make this optional, defaulting to an assumption that
+  # the user can pass in a 2D array of a single haplotype window, rather than a 
+  # long array of different windows? I've started implementing this below. 
   parser$add_argument("-i", "--image_index", type="integer", default=-1,
                       help="Image batch index. Required for .npy")
   
   parser$add_argument("--annotate", action="store_true", default=FALSE,
                       help="annotate region in plot")
-  parser$add_argument("--palette", type="character", default="default",
+  parser$add_argument("--color_by", type="character", default="none",
                       help="name of column to color minor alleles by (e.g. 'site_type')")
   parser$add_argument("--expanded_region", type="double", nargs=2, default=c(0, 0),
                       help="expanded region to plot (and not cluster by); (start end)")
@@ -104,10 +108,13 @@ get_haplotype_clusters <- function(raw_haps){
 }
 
 
-plot_haplotype <- function(l,r,hap,sort_mth="freq",nonsample_cols=NA,annotation=F,palette='default'){
+plot_haplotype <- function(l,r,hap,sort_mth="freq",nonsample_cols=NA,annotation=F,colorby_column='none'){
   
   # cluster haplotypes and prepare data frame for plotting
-  raw_hap <- hap %>% filter(site_pos >= l & site_pos <= r) %>% select(-any_of(nonsample_cols))
+  raw_hap <- hap %>% 
+    filter(site_pos >= l & site_pos <= r) %>% 
+    select(-any_of(nonsample_cols)) %>% 
+    select(where(~ !all(is.na(.)))) # remove columns that are all NA
   hap_clusters <- get_haplotype_clusters(raw_hap)
 
   hap_df <- hap %>% mutate(site_index = rank(site_pos)) %>%
@@ -155,9 +162,9 @@ plot_haplotype <- function(l,r,hap,sort_mth="freq",nonsample_cols=NA,annotation=
                          labels=x_labels,expand=c(0.01,0)) +
       scale_y_continuous(breaks=y_breaks,labels=abs, expand=c(0.01,0))
     
-  if(palette == 'default'){
+  if(colorby_column == 'none'){
     plt <- plt + scale_fill_manual(values=c("0"="grey87","1"="steelblue2"),na.value="white")
-  } else if (palette == 'site_type'){
+  } else if (colorby_column == 'site_type'){
     plt <- plt + scale_fill_manual(values=c("0"="grey87","1"="steelblue2","2"="firebrick3"),na.value="white")
   }
 
@@ -218,31 +225,35 @@ main <- function(){
   # ---------------------
   } else if (file_ext == "npy") {
     
-    # Enforce Image Index Argument
-    if (args$image_index == -1) {
-      stop("Error: For .npy files, you must specify an --image_index (e.g., --image_index 1)")
+    # PJL -- move here, don't require average user to install reticulate / Python
+    # rccppcnpy is lighter weight, but only handles 2d arrays
+    # assume user can pass in a 2d numpy array for single image
+    if(!require("RcppCNPy") && !require("reticulate")){ 
+      stop("Error: To read .npy files, please install either the 'RcppCNPy' or 'reticulate' package.")
     }
-    
-    message(paste("Loading .npy file:", args$file))
-    np <- import("numpy")
-    
-    # Load full array
-    full_array <- np$load(args$file)
-    
-    # Validation
-    if (args$image_index > dim(full_array)[1] || args$image_index < 1) {
+
+    if require("reticulate"){
+      np <- import("numpy")
+      full_array <- np$load(args$file)
+    } else if (require("RcppCNPy") & args$image_index == -1){
+      full_array <- RcppCNPy::npyLoad(args$file, type="integer") # needs to be 64-bit
+    }
+
+    if(args$image_index == -1){
+      raw_matrix <- full_array
+    } else if(args$image_index <= dim(full_array)[1] || args$image_index >= 1) {
+      raw_matrix <- full_array[args$image_index, , ]
+    } else {
       stop(paste("Image index", args$image_index, "is out of bounds. Max batch size is", dim(full_array)[1]))
     }
-    
-    # Slice the batch: Shape becomes [50, 102] (Ind x Sites)
-    # Note: R is 1-based, so we use the index directly
-    raw_matrix <- full_array[args$image_index, , ]
+
     
     # Transpose to match pipeline: Rows=Sites, Cols=Individuals
     hap_matrix <- t(raw_matrix)
     hap <- as.data.frame(hap_matrix)
     
     # Synthesize columns
+    # PJL -- I like this default columns approach -- can we implement in TSV mode too?
     colnames(hap) <- paste0("ind_", 1:ncol(hap))
     hap$site_pos <- 1:nrow(hap)
     hap <- hap %>% select(site_pos, everything())
@@ -258,7 +269,7 @@ main <- function(){
   # ---------------------
   # PLOTTING
   # ---------------------
-  p <- plot_haplotype(l, r, hap, sort_mth=sort_mth, nonsample_cols=nonsample_cols, annotation=args$annotate, palette=args$palette)
+  p <- plot_haplotype(l, r, hap, sort_mth=sort_mth, nonsample_cols=nonsample_cols, annotation=args$annotate, colorby_column=args$color_by)
   ggsave(args$out, plot=p, width=args$width, height=args$height)
 }
 
